@@ -1,0 +1,57 @@
+{
+  "name": "TaskFlow",
+  "version": "1",
+  "items": [
+    {
+      "name": "Register",
+      "request": {
+        "url": "{{baseUrl}}/auth/register",
+        "method": "POST",
+        "body": {
+          "mode": "json",
+          "json": "{\n  \"email\": \"alex.morgan@taskflow.dev\",\n  \"password\": \"Password123!\",\n  \"firstName\": \"Alex\",\n  \"lastName\": \"Morgan\",\n  \"orgName\": \"Apex Solutions\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Login Alice (Admin)",
+      "request": {
+        "url": "{{baseUrl}}/auth/login",
+        "method": "POST",
+        "body": {
+          "mode": "json",
+          "json": "{\n  \"email\": \"alice@acme.com\",\n  \"password\": \"Password123!\"\n}"
+        }
+      }
+    },
+    {
+      "name": "List Projects",
+      "request": {
+        "url": "{{baseUrl}}/projects",
+        "method": "GET",
+        "headers": [
+          { "name": "Authorization", "value": "Bearer {{accessToken}}" }
+        ]
+      }
+    },
+    {
+      "name": "List Tasks",
+      "request": {
+        "url": "{{baseUrl}}/tasks?page=1&limit=10",
+        "method": "GET",
+        "headers": [
+          { "name": "Authorization", "value": "Bearer {{accessToken}}" }
+        ]
+      }
+    }
+  ],
+  "environments": [
+    {
+      "name": "Local",
+      "variables": {
+        "baseUrl": "http://localhost:3000",
+        "accessToken": ""
+      }
+    }
+  ]
+}

@@ -1,0 +1,255 @@
+// Prisma schema for TaskFlow
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrgRole {
+  org_admin
+  member
+}
+
+enum TaskStatus {
+  todo
+  in_progress
+  review
+  done
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum NotificationType {
+  MEMBER_INVITED
+  TASK_ASSIGNED
+  TASK_UPDATED
+  COMMENT_ADDED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String?  @map("password_hash") // Optional for OAuth-only users
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  oauthProvider String? @map("oauth_provider") // e.g. "google", "github"
+  oauthId      String?  @map("oauth_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  orgMemberships  OrgMember[]
+  createdProjects Project[]        @relation("ProjectCreator")
+  createdTasks    Task[]           @relation("TaskCreator")
+  taskAssignments TaskAssignment[] @relation("AssignedUser")
+  assignedByMe    TaskAssignment[] @relation("TaskAssigner")
+  comments        Comment[]
+  refreshTokens   RefreshToken[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+
+  @@index([oauthProvider, oauthId], name: "idx_users_oauth")
+  @@map("users")
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  members  OrgMember[]
+  projects Project[]
+
+  @@map("organizations")
+}
+
+model OrgMember {
+  id             String       @id @default(uuid())
+  organizationId String       @map("org_id")
+  userId         String       @map("user_id")
+  role           OrgRole      @default(member)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  // Foreign Key Decisions:
+  // CASCADE: If an organization or user is deleted, their membership link is cleanly removed.
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes:
+  // Composite unique index ensures a user can only belong once per org,
+  // and allows O(1) tenant membership verification during auth & authorization.
+  @@unique([organizationId, userId], name: "org_user_unique")
+  @@index([userId], name: "idx_org_members_user_id")
+  @@map("org_members")
+}
+
+model Project {
+  id             String    @id @default(uuid())
+  organizationId String    @map("org_id")
+  name           String
+  description    String?
+  createdById    String    @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  // Foreign Key Decisions:
+  // CASCADE on organization: Deleting an organization removes all associated projects.
+  // RESTRICT on createdBy: Prevents deleting a user if they are the primary recorded creator of active projects.
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User         @relation("ProjectCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  tasks        Task[]
+
+  // Indexes:
+  // Composite index on (org_id, deleted_at) ensures fast tenant-scoped project listing excluding soft-deleted items.
+  @@index([organizationId, deletedAt], name: "idx_projects_org_deleted")
+  @@map("projects")
+}
+
+model Task {
+  id          String       @id @default(uuid())
+  projectId   String       @map("project_id")
+  title       String
+  description String?
+  status      TaskStatus   @default(todo)
+  priority    TaskPriority @default(medium)
+  dueDate     DateTime?    @map("due_date")
+  createdById String       @map("created_by")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  deletedAt   DateTime?    @map("deleted_at")
+
+  // Foreign Key Decisions:
+  // CASCADE on project: Deleting a project removes all associated tasks and assignments.
+  // RESTRICT on createdBy: Protects audit trail of who created a task.
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator     User             @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  assignments TaskAssignment[]
+  comments    Comment[]
+
+  // Indexes:
+  // 1. (project_id, status, deleted_at): Highly optimized for project dashboard queries (group by status) & status filters.
+  // 2. (due_date): Essential for date range filtering and sorting tasks near deadlines.
+  // 3. (priority): Filter tasks by urgent/high priority.
+  @@index([projectId, status, deletedAt], name: "idx_tasks_project_status_deleted")
+  @@index([dueDate], name: "idx_tasks_due_date")
+  @@index([priority], name: "idx_tasks_priority")
+  @@map("tasks")
+}
+
+model TaskAssignment {
+  id           String    @id @default(uuid())
+  taskId       String    @map("task_id")
+  userId       String    @map("user_id")
+  assignedById String?   @map("assigned_by")
+  assignedAt   DateTime  @default(now()) @map("assigned_at")
+
+  // Foreign Key Decisions:
+  // CASCADE on task: Removing a task automatically clears its assignments.
+  // CASCADE on user: Removing a user clears their active task assignments.
+  // SET NULL on assignedBy: If assigner account is removed, assignment remains valid.
+  task       Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User  @relation("AssignedUser", fields: [userId], references: [id], onDelete: Cascade)
+  assigner   User? @relation("TaskAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  // Indexes:
+  // Unique constraint ensures a user isn't assigned multiple times to the same task.
+  // Index on user_id allows efficient queries for "All tasks assigned to User X".
+  @@unique([taskId, userId], name: "task_user_assignment_unique")
+  @@index([userId], name: "idx_task_assignments_user_id")
+  @@map("task_assignments")
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  userId    String   @map("user_id")
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Foreign Key Decisions:
+  // CASCADE on task: Deleting a task deletes its discussion thread.
+  // CASCADE on user: If user profile is purged, removes their authored comments.
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes:
+  // Index on (task_id, created_at) provides fast chronological comment retrieval.
+  @@index([taskId, createdAt], name: "idx_comments_task_created")
+  @@map("comments")
+}
+
+model RefreshToken {
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  tokenHash        String    @unique @map("token_hash")
+  familyId         String    @map("family_id") // For refresh token rotation family tracking
+  isRevoked        Boolean   @default(false) @map("is_revoked")
+  replacedByToken  String?   @map("replaced_by_token")
+  expiresAt        DateTime  @map("expires_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  userAgent        String?   @map("user_agent")
+  ipAddress        String?   @map("ip_address")
+
+  // Foreign Key Decisions:
+  // CASCADE on user: User deletion revokes and cleans all active sessions.
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes:
+  // Fast lookup by token hash during /auth/refresh and by family_id/user_id for revocation/logout-all.
+  @@index([userId, isRevoked], name: "idx_refresh_tokens_user_revoked")
+  @@index([familyId], name: "idx_refresh_tokens_family")
+  @@map("refresh_tokens")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  orgId     String           @map("org_id")
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt], name: "idx_notifications_user_read")
+  @@index([orgId, createdAt], name: "idx_notifications_org_created")
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  orgId      String   @map("org_id")
+  projectId  String?  @map("project_id")
+  taskId     String?  @map("task_id")
+  userId     String   @map("user_id")
+  action     String   // e.g. "TASK_CREATED", "TASK_STATUS_CHANGED", "TASK_ASSIGNED", "COMMENT_ADDED", "MEMBER_INVITED"
+  entityType String   @map("entity_type") // e.g. "TASK", "PROJECT", "MEMBER", "COMMENT"
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt], name: "idx_audit_logs_task")
+  @@index([projectId, createdAt], name: "idx_audit_logs_project")
+  @@index([orgId, createdAt], name: "idx_audit_logs_org")
+  @@map("audit_logs")
+}
