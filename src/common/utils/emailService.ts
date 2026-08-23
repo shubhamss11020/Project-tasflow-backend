@@ -1,3 +1,5 @@
+import nodemailer from 'nodemailer';
+
 export interface SendEmailOptions {
   to: string;
   subject: string;
@@ -11,7 +13,9 @@ export class EmailService {
   private smtpPort?: number;
   private smtpUser?: string;
   private smtpPass?: string;
+  private smtpSecure?: boolean;
   private fromEmail: string;
+  private transporter: nodemailer.Transporter | null = null;
 
   constructor() {
     this.resendApiKey = process.env.RESEND_API_KEY;
@@ -19,13 +23,57 @@ export class EmailService {
     this.smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
     this.smtpUser = process.env.SMTP_USER;
     this.smtpPass = process.env.SMTP_PASS;
-    this.fromEmail = process.env.EMAIL_FROM || 'TaskFlow Notifications <notifications@taskflow.dev>';
+    this.smtpSecure = process.env.SMTP_SECURE === 'true' || this.smtpPort === 465;
+    this.fromEmail = process.env.EMAIL_FROM || 'TaskFlow <notifications@taskflow.dev>';
+
+    this.initTransporter();
   }
 
-  async sendEmail(options: SendEmailOptions): Promise<{ success: boolean; messageId: string; provider: string }> {
+  private initTransporter() {
+    // If SMTP host and credentials are provided, initialize Nodemailer transporter
+    if (this.smtpHost && this.smtpUser && this.smtpPass) {
+      this.transporter = nodemailer.createTransport({
+        host: this.smtpHost,
+        port: this.smtpPort,
+        secure: this.smtpSecure,
+        auth: {
+          user: this.smtpUser,
+          pass: this.smtpPass
+        }
+      });
+      console.log(`[EmailService] Initialized SMTP Transporter (${this.smtpHost}:${this.smtpPort})`);
+    }
+  }
+
+  async sendEmail(options: SendEmailOptions): Promise<{ success: boolean; messageId: string; provider: string; preview?: string }> {
     const { to, subject, html, text } = options;
 
-    // 1. Resend Provider (if RESEND_API_KEY is configured)
+    // 1. SMTP Provider (Nodemailer - Gmail, Mailtrap, Brevo, AWS SES, custom SMTP)
+    if (this.transporter || (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)) {
+      if (!this.transporter) {
+        this.initTransporter();
+      }
+
+      if (this.transporter) {
+        try {
+          const info = await this.transporter.sendMail({
+            from: this.fromEmail,
+            to,
+            subject,
+            html,
+            text: text || html.replace(/<[^>]*>?/gm, '')
+          });
+
+          console.log(`[EmailService:SMTP] ✅ Real email sent via SMTP to ${to} (MessageID: ${info.messageId})`);
+          return { success: true, messageId: info.messageId, provider: 'smtp' };
+        } catch (smtpErr: any) {
+          console.error(`[EmailService:SMTP Error] Failed sending to ${to}:`, smtpErr.message);
+          throw smtpErr;
+        }
+      }
+    }
+
+    // 2. Resend API Provider (if configured)
     if (this.resendApiKey) {
       try {
         const response = await fetch('https://api.resend.com/emails', {
@@ -44,31 +92,25 @@ export class EmailService {
         });
 
         const data: any = await response.json();
-        if (!response.ok) {
-          throw new Error(data.message || 'Failed to send email via Resend');
+        if (response.ok) {
+          console.log(`[EmailService:Resend] Email delivered to ${to} (ID: ${data.id})`);
+          return { success: true, messageId: data.id, provider: 'resend' };
         }
-
-        console.log(`[EmailService:Resend] Email delivered to ${to} (ID: ${data.id})`);
-        return { success: true, messageId: data.id, provider: 'resend' };
       } catch (err: any) {
         console.error('[EmailService:Resend Error]', err.message);
-        // Fallback to mock/log on failure
       }
     }
 
-    // 2. Mock / Dev Transporter (Logs rich visual preview)
-    const mockId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // 3. Dev Mock / Console Transporter
+    const mockId = `mock_msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     console.log(`
 ╔═══════════════════════════════════════════════════════════════════════════╗
-║ [EMAIL NOTIFICATION DISPATCHED]                                            ║
+║ [EMAIL NOTIFICATION DISPATCHED - DEV MOCK]                                 ║
 ╠═══════════════════════════════════════════════════════════════════════════╣
-║ To:      ${to.padEnd(65)}║
-║ Subject: ${subject.padEnd(65)}║
-║ Provider: Dev Mock / Console Transporter (Configured for Resend/SMTP)      ║
-║ ID:      ${mockId.padEnd(65)}║
-╠═══════════════════════════════════════════════════════════════════════════╣
-║ Body Preview:                                                             ║
-║ ${html.replace(/<[^>]*>?/gm, ' ').slice(0, 70).padEnd(73)} ║
+║ To:       ${to.padEnd(64)}║
+║ Subject:  ${subject.padEnd(64)}║
+║ Provider: Dev Mock (Configure SMTP_HOST & SMTP_USER in .env for real mail)║
+║ ID:       ${mockId.padEnd(64)}║
 ╚═══════════════════════════════════════════════════════════════════════════╝
     `);
 

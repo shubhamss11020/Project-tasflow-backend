@@ -613,7 +613,28 @@
       ]
     },
     {
-      "name": "6. In-App Notifications",
+      "name": "6. Email Delivery (SMTP)",
+      "item": [
+        {
+          "name": "Send Test Email via SMTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"your_email@gmail.com\",\n  \"subject\": \"TaskFlow SMTP Test Email\",\n  \"message\": \"Hello! SMTP email delivery is working successfully in TaskFlow.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/email/test",
+              "host": ["{{baseUrl}}"],
+              "path": ["email", "test"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. In-App Notifications",
       "item": [
         {
           "name": "Get Notifications (with unread count)",

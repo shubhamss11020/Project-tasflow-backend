@@ -14,6 +14,7 @@ import { jobRouter } from './modules/jobs/job.routes';
 import { sseRouter } from './modules/events/sse.routes';
 import { notificationRouter } from './modules/notifications/notification.routes';
 import { auditRouter } from './modules/audit/audit.routes';
+import { emailRouter } from './modules/email/email.routes';
 
 export const app = express();
 
@@ -44,6 +45,7 @@ app.use('/tasks/:taskId/comments', commentRouter);
 app.use('/jobs', jobRouter);
 app.use('/events', sseRouter);
 app.use('/notifications', notificationRouter);
+app.use('/email', emailRouter);
 app.use('/', auditRouter);
 
 // 404 handler for undefined routes

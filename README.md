@@ -1,72 +1,42 @@
-# TaskFlow — Backend Developer Technical Assignment
+# TaskFlow — Multi-Tenant Project Management Backend
 
-TaskFlow is a production-ready, multi-tenant project management backend built with **Node.js**, **TypeScript**, **Express**, **PostgreSQL (Prisma ORM)**, **Redis**, and **BullMQ**, fully containerized with **Docker Compose**.
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20.x-green.svg)](https://nodejs.org/)
+[![Express](https://img.shields.io/badge/Express-4.21-black.svg)](https://expressjs.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://www.postgresql.org/)
+[![Prisma](https://img.shields.io/badge/Prisma-5.22-teal.svg)](https://www.prisma.io/)
+[![Redis](https://img.shields.io/badge/Redis-7.x-red.svg)](https://redis.io/)
+[![BullMQ](https://img.shields.io/badge/BullMQ-5.21-orange.svg)](https://bullmq.io/)
+[![Docker Compose](https://img.shields.io/badge/Docker%20Compose-v2-blue.svg)](https://www.docker.com/)
+[![Tests](https://img.shields.io/badge/Tests-24%20Passing-brightgreen.svg)](https://jestjs.io/)
 
----
-
-## 🏛️ System Architecture Overview
-
-```
-                      +---------------------------------------------------+
-                      |             CLIENTS / USERS / BROWSERS            |
-                      |   (React / Next.js / Mobile App / Postman Client) |
-                      +-------------------------+-------------------------+
-                                                |
-                              1. HTTP REST Requests | 2. SSE EventStream (:3000/events/stream)
-                                                v
-                      +---------------------------------------------------+
-                      |             TASKFLOW EXPRESS API SERVER           |
-                      |  - Helmet, CORS, Morgan Logger, Rate Limiting     |
-                      |  - JWT Authentication (15m Access, 7d Refresh)    |
-                      |  - RBAC Middleware (org_admin, member)            |
-                      |  - Multi-Tenant Row-Level Scoping (org_id)        |
-                      |  - Zod Request Validation & Error Interceptor     |
-                      +-----------+-------------------+---------------+---+
-                                  |                   |               |
-             Prisma ORM (DB Pool) |     Enqueue Job   |               | Live SSE Events
-                                  v                   v               v
-               +--------------------+   +-------------------+   +--------------------+
-               |   POSTGRESQL 16    |   |      REDIS 7      |   |  CONNECTED CLIENTS |
-               | (Multi-Tenant DB)  |   |  (BullMQ Broker)  |   | (Live Dashboard)   |
-               | - users            |   | - email-queue     |   +--------------------+
-               | - organizations    |   | - email-dlq       |
-               | - org_members      |   +---------+---------+
-               | - projects         |             |
-               | - tasks            |             | Consume Jobs (50/min Rate Limit)
-               | - task_assignments |             v
-               | - comments         |   +------------------------------------+
-               | - notifications    |   |    BULLMQ BACKGROUND WORKER        |
-               | - audit_logs       |   |  - 3 Retries (1s -> 2s -> 4s)      |
-               | - refresh_tokens   |   |  - Dead-Letter Queue on Exhaustion |
-               +--------------------+   |  - Unified Email Service           |
-                                        |    (Resend API / SMTP / Mock)      |
-                                        +-----------------+------------------+
-                                                          |
-                                                          | Deliver HTML Emails
-                                                          v
-                                        +------------------------------------+
-                                        |         RECIPIENT INBOXES          |
-                                        |  (Invites, Assignments, Updates)   |
-                                        +------------------------------------+
-```
+TaskFlow is an enterprise-grade, multi-tenant project management backend designed with **clean architecture**, **strict tenant isolation**, **resilient asynchronous background jobs**, **real-time Server-Sent Events (SSE)**, and **comprehensive API documentation**.
 
 ---
 
-## 🌟 Key Features & Implementation Highlights
+## 🏛️ System Architecture
 
-- **Multi-Tenant Scoping & Security**: Strict row-level organization scoping via JWT context (`orgId`, `userId`, `role`). Client-provided `org_id` is never trusted; cross-tenant access returns standard `403 Forbidden` (`FORBIDDEN`).
-- **PostgreSQL Database Design (Prisma ORM)**:
+<p align="center">
+  <img src="docs/architecture.png" alt="TaskFlow System Architecture" width="100%" />
+</p>
+
+---
+
+## 🌟 Core Technical Highlights
+
+- **Multi-Tenant Isolation**: Strict row-level scoping via JWT context (`orgId`, `userId`, `role`). Client-supplied `org_id` is never trusted; cross-tenant access returns standard `403 Forbidden` (`FORBIDDEN`).
+- **PostgreSQL Database Design**:
   - Tables: `users`, `organizations`, `org_members`, `projects`, `tasks`, `task_assignments`, `comments`, `notifications`, `audit_logs`, `refresh_tokens`.
-  - Documented `CASCADE` vs `RESTRICT` foreign key relationships.
-  - Native Enums: `OrgRole`, `TaskStatus`, `TaskPriority`, `NotificationType`.
-  - Optimized Composite Indexes on `(project_id, status, deleted_at)`, `(org_id, deleted_at)`, `(due_date)`, and `(user_id)`.
+  - Documented `CASCADE` vs `RESTRICT` foreign key rules.
+  - Native PostgreSQL enums: `OrgRole`, `TaskStatus`, `TaskPriority`, `NotificationType`.
+  - Composite indexes on `(project_id, status, deleted_at)`, `(org_id, deleted_at)`, `(due_date)`, and `(user_id)`.
   - Soft delete support (`deleted_at`) on projects & tasks.
-  - PostgreSQL full-text search capability.
+  - PostgreSQL full-text search.
 - **Authentication & RBAC**:
   - `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`.
   - **OAuth 2.0 (Google & GitHub)**: `POST /auth/oauth/google`, `POST /auth/oauth/github`.
   - `bcrypt` password hashing with cost factor $\ge 12$.
-  - 15-minute JWT access token + 7-day refresh token in DB with **Refresh Token Rotation & Family Theft Protection**.
+  - 15-minute JWT access token + 7-day refresh token in DB with **Refresh Token Rotation & Family Theft Detection**.
   - Rate limiting on authentication endpoints (**10 requests/minute/IP**).
   - RBAC roles (`org_admin`, `member`) where admins can manage members and delete projects.
 - **In-App Notifications & Real-Time SSE**:
@@ -78,7 +48,7 @@ TaskFlow is a production-ready, multi-tenant project management backend built wi
 - **REST API - Projects & Tasks**:
   - Clean `Route -> Controller -> Service -> DB` layered architecture.
   - Full CRUD for projects and tasks.
-  - Task filters: `status`, `priority`, `assigneeId`, `dueDateStart`, `dueDateEnd`, `search`.
+  - Filters: `status`, `priority`, `assigneeId`, `dueDateStart`, `dueDateEnd`, `search`.
   - **Dual Pagination**: **Offset pagination** (`{ data, total, page, limit }`) and **Cursor pagination** (`{ data, next_cursor }`).
   - Zod validation for all request payloads.
   - Task assignment/unassignment with same-organization validation.
@@ -86,6 +56,8 @@ TaskFlow is a production-ready, multi-tenant project management backend built wi
   - **Bonus**: Bulk task status update endpoint (`PATCH /tasks/bulk-status`).
 - **Background Jobs & Email Notifications (BullMQ + Redis)**:
   - Asynchronous email notifications on task assignment, member invites, task changes, and comments.
+  - Unified Email Service supporting **Nodemailer SMTP** (Gmail, Mailtrap, Brevo, AWS SES), **Resend API**, and **Dev Mock transporter**.
+  - Direct testing endpoint: `POST /email/test`.
   - 3 retries with exponential backoff ($1\text{s} \to 2\text{s} \to 4\text{s}$).
   - Dead-Letter Queue (`email-notifications-dlq`) for exhausted retries.
   - `GET /jobs/:id` endpoint for inspecting job status (`pending`, `active`, `completed`, `failed`).
@@ -94,8 +66,7 @@ TaskFlow is a production-ready, multi-tenant project management backend built wi
 - **API Documentation & Testing**:
   - Interactive Swagger UI at `http://localhost:3000/api-docs`.
   - Ready-to-import Postman collection: [`TaskFlow.postman_collection.json`](./TaskFlow.postman_collection.json).
-  - Ready-to-import Bruno collection in [`bruno/`](./bruno/).
-  - 24 automated unit and integration tests with Jest & Supertest.
+  - **24 automated unit & integration tests passing** with Jest & Supertest.
 
 ---
 
@@ -113,7 +84,7 @@ The services will start on:
 - **PostgreSQL**: `localhost:5432`
 - **Redis**: `localhost:6379`
 
-To seed initial demo data into the running Docker container:
+To seed demo data into the running Docker container:
 ```bash
 docker compose exec api npm run prisma:seed
 ```
@@ -208,8 +179,9 @@ Import [`TaskFlow.postman_collection.json`](./TaskFlow.postman_collection.json) 
 ├── Dockerfile                  # Multi-stage Docker build with Alpine OpenSSL support
 ├── package.json                # Dependencies and npm scripts
 ├── tsconfig.json               # TypeScript configuration
-├── ARCHITECTURE.md             # In-depth architectural design & technical decisions
 ├── TaskFlow.postman_collection.json # Ready-to-import Postman collection
+├── docs/
+│   └── architecture.png        # System architecture diagram
 ├── prisma/
 │   ├── schema.prisma           # Prisma schema with models, enums, FK constraints, and indexes
 │   ├── seed.ts                 # Database seed script
@@ -235,6 +207,7 @@ Import [`TaskFlow.postman_collection.json`](./TaskFlow.postman_collection.json) 
 │       ├── comments/           # Task comments CRUD
 │       ├── notifications/      # In-app notifications & read/unread management
 │       ├── events/             # Real-time SSE event stream
+│       ├── email/              # SMTP & email delivery test endpoints
 │       ├── audit/              # Activity and audit log queries
 │       └── jobs/               # BullMQ job status inspection (GET /jobs/:id)
 └── tests/

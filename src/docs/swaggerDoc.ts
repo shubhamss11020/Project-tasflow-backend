@@ -370,6 +370,32 @@ export const swaggerDocument = {
         responses: { 200: { description: 'Activity audit logs' } }
       }
     },
+    '/email/test': {
+      post: {
+        summary: 'Test sending real email via SMTP (Gmail, Mailtrap, Brevo, AWS SES)',
+        tags: ['Email Delivery'],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['to'],
+                properties: {
+                  to: { type: 'string', format: 'email', example: 'your_email@gmail.com' },
+                  subject: { type: 'string', example: 'Test SMTP Email Delivery' },
+                  message: { type: 'string', example: 'Testing TaskFlow real email delivery' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: { description: 'Email sent successfully via SMTP' },
+          500: { description: 'SMTP authentication or delivery failure' }
+        }
+      }
+    },
     '/jobs/{id}': {
       get: {
         summary: 'Inspect BullMQ job status (pending, active, completed, failed)',
