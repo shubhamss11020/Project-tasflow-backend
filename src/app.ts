@@ -18,6 +18,9 @@ import { emailRouter } from './modules/email/email.routes';
 
 export const app = express();
 
+// Enable trust proxy for reverse proxies (Render, AWS, Cloudflare, Nginx)
+app.set('trust proxy', 1);
+
 // Security and utility middleware
 app.use(helmet());
 app.use(cors());

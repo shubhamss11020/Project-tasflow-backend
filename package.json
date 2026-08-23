@@ -7,7 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "dev:worker": "tsx watch src/workers/emailWorker.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "npx prisma db push --accept-data-loss && node dist/server.js",
     "start:worker": "node dist/workers/emailWorker.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
