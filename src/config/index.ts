@@ -6,9 +6,11 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/taskflow_db?schema=public',
   redis: {
+    url: process.env.REDIS_URL || undefined,
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT || '6379', 10),
-    password: process.env.REDIS_PASSWORD || undefined
+    password: process.env.REDIS_PASSWORD || undefined,
+    tls: process.env.REDIS_TLS === 'true' || (process.env.REDIS_HOST || '').includes('upstash.io')
   },
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET || 'taskflow_jwt_access_super_secret_key_2026_default',
